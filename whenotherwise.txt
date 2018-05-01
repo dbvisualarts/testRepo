@@ -1,0 +1,140 @@
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.api.java.UDF1;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SQLContext;
+import org.apache.spark.sql.SaveMode;
+import org.apache.spark.SparkConf;
+import org.apache.spark.SparkContext;
+import org.apache.spark.streaming.api.java.*;
+import org.apache.spark.streaming.kafka010.ConsumerStrategies;
+import org.apache.spark.streaming.kafka010.KafkaUtils;
+import org.apache.spark.streaming.kafka010.LocationStrategies;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.spark.streaming.Durations;
+import org.apache.spark.sql.cassandra.*;
+import com.datastax.spark.connector.cql.CassandraConnectorConf;
+import com.datastax.spark.connector.rdd.ReadConf;
+
+public class SparkConsumer {
+
+	public static void main(String[] args) throws Exception {
+	    if (args.length < 2) {
+	      System.err.println("Usage: SparkConsumer <brokers> <topics>\n" +
+	          "  <brokers> is a list of one or more Kafka brokers\n" +
+	          "  <topics> is a list of one or more kafka topics to consume from\n\n");
+	      System.exit(1);
+	    }
+//	    String brokers = "127.0.0.1:9092";
+	    String brokers = args[0];
+	    String topics = args[1];
+
+	    // Create context with a 30 seconds batch interval
+	    SparkConf sparkConf = new SparkConf().setAppName("JavaDirectKafkaWordCount");
+	    JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, Durations.seconds(30));
+	    Set<String> topicsSet = new HashSet<>(Arrays.asList(topics.split(",")));
+	    Map<String, Object> kafkaParams = new HashMap<>();
+//	    kafkaParams.put("metadata.broker.list", "127.0.0.1:9092");
+	    kafkaParams.put( ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokers);
+	    kafkaParams.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,"org.apache.kafka.common.serialization.StringDeserializer");
+	    kafkaParams.put(ConsumerConfig.GROUP_ID_CONFIG,"testgroup");
+	    kafkaParams.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
+//	    kafkaParams.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+	    kafkaParams.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+	    
+	    StructType schema = new StructType().add("timestamp", DataTypes.StringType).
+	             add("publisher", DataTypes.StringType).add("advertiser", DataTypes.StringType).add("event", DataTypes.StringType).
+	             add("website", DataTypes.StringType).add("country", DataTypes.StringType).add("error", DataTypes.StringType);
+	    
+	    JavaInputDStream<ConsumerRecord<String, String>> messages = KafkaUtils.createDirectStream(
+	            jssc,
+	            LocationStrategies.PreferConsistent(),
+	            ConsumerStrategies.Subscribe(topicsSet, kafkaParams));
+	    
+	    JavaDStream<String> jsonMessages = messages.map(ConsumerRecord::value);
+	    jsonMessages.foreachRDD((rdd, time) -> {
+			    SparkContext sc = new SparkContext(rdd.context().getConf());
+			    SQLContext sqlContext = new SQLContext(sc);
+			    
+			    //define region
+			    sqlContext.udf().register("getRegion", new UDF1<String, String>() {
+			    	  @Override
+			    	  public String call(String country) {
+			    		  String region = "";
+			    		switch (country) {
+						case "AS":
+							region = "APAC";
+							break;
+						case "AF":
+							region = "EMEA";
+							break;
+						case "EU":
+							region = "EMEA";
+							break;
+						case "NA":
+							region = "AMR";
+							break;
+						case "OC":
+							region = "AMR";
+							break;
+						case "SA":
+							region = "AMR";
+							break;
+						case "reserved":
+							region = "RES";
+							break;
+						default:
+							break;
+						}
+			    	    return (region);
+			    	  }
+			    	}, DataTypes.StringType);
+			    
+			    //define errortype
+			    sqlContext.udf().register("getErrorType", new UDF1<String, String>() {
+			    	  @Override
+			    	  public String call(String error) {
+			    		String errortype = "";
+			    		if(error.contains("broken links"))
+			    			errortype = "performance";
+			    		if(error.contains("JS Error"))
+			    			errortype = "error";
+			    	    return (errortype);
+			    	  }
+			    	}, DataTypes.StringType);
+
+		        SparkSession spark = JavaSparkSessionSingleton.getInstance(rdd.context().getConf().set("spark.cassandra.connection.host", "127.0.0.1"));
+//		        spark.setCassandraConf(CassandraConnectorConf.ConnectionHostParam().option("127.0.0.1"));
+		        spark.read().schema(schema).json(rdd).createOrReplaceTempView("RegionDetails");
+		        Dataset<Row> regionupdates = spark.sql("select current_timestamp() as time,current_date() as date, getRegion(ipcountry) as region, ipcountry, getErrorType(error) as errortype, count(*) as count from RegionDetails group by region,country,errortype order by rcount desc LIMIT 5");
+		        regionupdates.show();
+		        regionupdates.write().format("org.apache.spark.sql.cassandra").option("keyspace","ks_ope").option("table", "rum_error_realtime").mode(SaveMode.Append).save();
+	    	});
+	    // Start the computation
+	    jssc.start();
+	    jssc.awaitTermination();
+	}
+	
+}
+
+class JavaSparkSessionSingleton {
+	  private static transient SparkSession instance = null;
+	  public static SparkSession getInstance(SparkConf sparkConf) {
+	    if (instance == null) {
+	      instance = SparkSession
+	        .builder()
+	        .config(sparkConf)
+	        .getOrCreate();
+	    }
+	    return instance;
+	  }
+	}
