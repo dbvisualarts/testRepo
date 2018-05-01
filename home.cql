@@ -1,0 +1,5 @@
+CREATE KEYSPACE home_security WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};USE home_security;CREATE TABLE activity (    homeId text,    datetime timestamp,    codeUsed text,    event text,    PRIMARY KEY (homeId, datetime)  ) WITH CLUSTERING ORDER BY (datetime DESC)CREATE TABLE home (homeId text,address text,
+city text,
+state text,zip text,contactName text,phone text,
+altPhone text, phonePassword text,email text, mainCode text,
+guestCode text,PRIMARY KEY (homeId));INSERT INTO activity (homeId, datetime, event, codeUsed) VALUES ('H01474777', '2014-05-21 07:32:16', 'alarm set', '5599');SELECT * FROM activity ;COPY activity (homeId, datetime, event, codeUsed) FROM '/home/hduser/Downloads/Training/Cassandra/events.csv' WITH header = true AND delimiter = '|';COPY home (home_id, address, city, state, zip, contact_name, phone, alt_phone, phone_password, email, main_code, guest_code) FROM '/home/hduser/Downloads/Training/Cassandra/homes.csv' WITH header = true AND delimiter = '|';
