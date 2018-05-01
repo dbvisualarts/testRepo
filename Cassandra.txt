@@ -1,0 +1,211 @@
+Cassandra is a distributed database
+There are no master and slave. Hence there is no single point of failure.
+Each node has the same functionality as the other
+Cassandra database can be spread across more than one data centre
+
+
+If there are no master and slave.
+If all the nodes have same functionality. How do the nodes know about each other? How do they know the topology of the cluster.
+Snitch is how the nodes in a cluster know about the topology of the cluster.
+  Dynamic Snitching
+  SimpleSnitch  //default
+  RackInferring Snitch
+  PropertyFileSnitch
+  GossipingPropertyFileSnitch
+  EC2Snitch
+  EC2MultiRegionSnitch
+  
+  SimpleSnitch is default
+  Limitation is single datacentre
+  
+  PropertyFileSnitch
+  130.77.100.147=DC1:RAC1
+  130.77.100.148=DC1:RAC1
+  130.77.100.149=DC1:RAC1
+  130.77.200.147=DC1:RAC2
+  130.77.200.148=DC1:RAC2
+  130.77.200.149=DC1:RAC2
+
+  155.23.100.128=DC2:RAC1
+  155.23.100.129=DC2:RAC1
+  155.23.100.130=DC2:RAC1
+  155.23.200.128=DC2:RAC2
+  155.23.200.129=DC2:RAC2
+  155.23.200.130=DC2:RAC2
+  This should be specified in each node of the cluster.
+  Limitation is when you add a new node to the cluster. You need to go to each node and add the ipaddress of the new node.
+  
+  Gossip
+  Gossip is how the nodes in a cluster communicate with each other.
+  Every 1 sec, each node communicates with up to three other nodes, exchanging information about itself and all the other nodes that it has information about.
+  Gossip is the internal communication method for nodes in a cluster to talk to each other.
+  
+  For external communication, such as from an application to Cassandra database, CQL or thrift are used.
+  
+  
+  Data Distribution
+  Data distribution is done through consistent hashing so that data is distributed evenly across the nodes in the cluster.
+  Rather than all the rows of a table existing on only one node, the rows are distributed across the nodes in the cluster.
+  
+  To distribute the rows across the nodes, a partitioner is used.
+  Default partitioner is Murmur3
+  Murmur3 takes the partition key of the row to generate a unique number between -2p63 and 2p63
+  Refer: Murmur3Partitioner.png
+  Ex: Home Alarm System.
+  
+  Each node is assigned a token. That node is responsible for values up to its value.
+  Refer TokenRange.png and TokenRange2.png
+  
+  Replication
+  Replication factor must be specified whenever a database is defined.
+  It is common to specify 2,3 or more. so that if one node goes down, there is alteast one other replica of the data.
+  Refer replication.png
+  
+  
+  
+  Virtual Nodes
+  Virtual nodes are an alternative way to assign token ranges to nodes, and are now the default in Cassandra
+  With virtual nodes, instead of a node being responsible for just one token range, it is instead responsible for many small token ranges
+  Default is 256
+  Virtual nodes aka vnodes were created to make it easier to add new nodes to a cluster while keeping the cluster balanced.
+  When  a new node is added, it receives many small token range slices from the existing nodes, to maintain a balanced cluster.
+  
+  Start Cassandra Cluster
+  bin/cassandra -f
+  bin/nodetool status //checks the status
+  bin/nodetool info
+  bin/nodetool ring
+  
+  Refer conf/cassandra.yaml configuration file.
+  
+  
+  Communicating with Cassandra
+  CQL(Cassandra Query Language) is a SQL-like query language for communicating with Cassandra
+  
+Keyspace
+CREATE KEYSPACE home_security WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+
+Table
+CREATE TABLE activity (
+    homeId text,
+    datetime timestamp,
+    codeUsed text,
+    event text,
+    PRIMARY KEY (homeId, datetime)  
+) WITH CLUSTERING ORDER BY (datetime DESC)
+Primary key is used to uniquely identify a row in a table
+Partition Key is hashed by the partitioner to determine which node in the cluster will store the partition.
+Refer PartitionKey.png
+
+All of the CQL rows that has the same partition key are stored in the same partition.
+
+
+Cluster Key is used to define how a row is ordered in a partition.
+Specifying descending order caused writes to take a little longer, as cells are inserted at the start of a partition, rather than added at the end, but improves read performance.
+Changing the clustering order of a table is not an option. Table has to be deleted and has to be created with the required order.
+In the above example it is compound primary key.
+
+CREATE TABLE home (
+homeId text,
+address text,
+city text,
+state text,
+zip text,
+contactName text,
+phone text,
+altPhone text, 
+phonePassword text,
+email text, 
+mainCode text,
+guestCode text,
+PRIMARY KEY (homeId)
+);
+Here home_id is primary key as well as partition key
+
+
+Inserting data to the table
+1. INSERT command
+home.cql
+2. COPY command is used to import and export to and from a csv file
+home.cql
+How data is stored in Cassandra
+DatastoredInternally.png
+casandra-cli
+USE home_security
+LIST activity
+Also you can use
+
+How data is stored in disk
+DataStoredInDisk.png
+When data is written to a table in Cassandra, it goes to both a commit log on disk(for playback, in case of node failure) and to memory(called memcache)
+Once the memcache for a table is full, it is flushed to disk, as an SSTable.
+The SSTable for a table are stored on the disk in "data" directory of Cassandra directory.
+
+To see the contents of an SSTable, sstable2json can be used.
+Flushing data manually
+nodetool flush home_security;
+Checking the flushed data
+Go to this path
+hduser@hduser:/opt/apache-cassandra-2.1.11/tools/bin$
+./sstable2json ../../data/data/home_security/home-33cf6b605bf711e6ac05477a67cce7ff/home_security-home-ka-1-Data.db
+
+sstableloader tool: is used for bulk loading. It streams SSTable files to a cluster.
+
+
+
+
+
+Write Operation in Cassandra
+
+
+
+
+
+DataModeling in Cassandra
+Joins do not exist in Cassandra. That is because the data for a table in distributed database is spread across the nodes in the cluster based on the partition keys. It would be incredibly slow for a cluster to somehow to join across multiple tables.
+As a result, data modeling in a Cassandra database needs to be done in a way so that all the data for a query is available  in one table.
+So DataModeling is done based on your queries.
+
+
+
+Using a where clause.
+As Cassandra is a distributed database with data organised by partition key, WHERE clause queries generally need to include  a partition key.
+These 2 queries will work
+SELECT * from activity WHERE home_id = 'H01474777' 
+SELECT * from activity WHERE home_id = 'H01474777' AND datetime > '2014-05-22 00:00:00';
+
+But this query will not work
+SELECT * from activity WHERE code_used = '5599'
+
+Secondary Index
+By creating an index for columns beyond the parition and clustering columns, values in these other columns can be referenced in WHERE clause.
+For each Secondary Index, Cassandra creates a hidden table on each node in the cluster.
+Creating Secondary indexes does not increase the speed of queries in Cassandra.
+Secondary indexes simply makes it so that WHERE clause that reference values in columns beyond primary and clustering columns can run.
+For increasing  the speed of a query, instead of creating a Secondary Index, you could create a table specifically for the query.
+
+CREATE INDEX code_used_index ON activity(code_used);
+
+
+vehicle_tracker
+Composite Partition Key.
+Composite Parition key is where a partition key is made up of more than one column.
+CREATE TABLE location (
+vehicleId text,
+date text,
+time timestamp,
+latitude double,
+longitude double,
+PRIMARY KEY ((vehicleId, date), time)
+) WITH CLUSTERING ORDER BY (time DESC);
+
+bin/cassandra-cli
+USE vehicle_tracker
+LIST location
+
+Connecting to Cassandra Cluster
+cluster = Cluster.builder.addContactPoint(contactNodes).withRetryPolicy(DowngradingConsistencyRetryPolicy.INSTANCE).withReconnectionPolicy(new ConstantReconnectionPolicy(100L)).build
+
+Seed Nodes
+Seed node are regular nodes that, via  their IP address, provide  a way for new nodes to join the cluster.
+ 
