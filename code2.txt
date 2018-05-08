@@ -1,0 +1,62 @@
+import java.util.HashMap;
+import java.util.HashSet;
+
+import static org.apache.spark.sql.functions.col;
+
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
+import org.apache.spark.sql.api.java.UDF1;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SQLContext;
+import org.apache.spark.sql.SaveMode;
+import org.apache.spark.SparkConf;
+import org.apache.spark.SparkContext;
+import org.apache.spark.streaming.api.java.*;
+import org.apache.spark.streaming.kafka010.ConsumerStrategies;
+import org.apache.spark.streaming.kafka010.KafkaUtils;
+import org.apache.spark.streaming.kafka010.LocationStrategies;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.spark.streaming.Durations;
+import org.apache.spark.sql.cassandra.*;
+import com.datastax.spark.connector.cql.CassandraConnectorConf;
+import com.datastax.spark.connector.rdd.ReadConf;
+
+public class SparkConsumerLatest {
+			    SparkSession spark = JavaSparkSessionSingleton.getInstance(rdd.context().getConf().set("spark.cassandra.connection.host", "127.0.0.1"));
+//		        spark.setCassandraConf(CassandraConnectorConf.ConnectionHostParam().option("127.0.0.1"));
+//		        spark.read().schema(schema).json(rdd).createOrReplaceTempView("RegionDetails");
+			    Dataset<Row> data = spark.read().schema(schema).json(rdd);
+//			    data.select("ipContinent",);
+//		        Dataset<Row> regionupdates = spark.sql("select current_timestamp() as time,current_date() as date, getRegion(ipcountry) as region, ipcountry, getErrorType(error) as errortype, count(*) as count from RegionDetails group by region,country,errortype order by rcount desc LIMIT 5");
+//		        regionupdates.show();
+			    Dataset<Row> newdf = data.select(col("*")).withColumn("region", functions.when(col("ipcountry").equalTo("OC"), "AMR").
+    					when(col("ipcountry").equalTo("SA"), "AMR").
+    					when(col("ipcountry").equalTo("NA"), "AMR").
+    					when(col("ipcountry").equalTo("AF"), "EMEA").
+    					when(col("ipcountry").equalTo("EU"), "EMEA").
+    					when(col("ipcountry").equalTo("AS"), "APAC").
+    					otherwise("Unknown")).
+    					withColumn("errorType", functions.
+    							when(col("eventType").contains(":404"),"broken link").
+    							when(col("eventType").equalTo("error"),"JSError").otherwise("Good"));
+		    newdf.printSchema();
+		    newdf.show();
+		    //df.select("*").groupBy($"ipcontinent",$"region",$"errorType").count.select("*",current_date() as "date",current_time_stamp() as "time").withColumn("time", date_format(col("time", "yyyy-MM-dd HH:mm:ss:SSS")))
+		    Dataset<Row> eventdata = newdf.groupBy(newdf.col("ipcountry"),newdf.col("region"),newdf.col("errorType")).count().
+		    							select(col("*")).withColumn("date",functions.current_date()).
+		    							withColumn("time", functions.date_format(col("date"), "HH:mm:ss:SSS"));
+		    eventdata.printSchema();
+		    eventdata.show();
+		    
+		    Dataset<Row> finaldf = eventdata.select("time","date","region","ipcountry","errorType","count");
+		    finaldf.printSchema();
+		    finaldf.show();
+		    finaldf.write().format("org.apache.spark.sql.cassandra").option("keyspace","ks_ope").option("table", "rum_error_realtime").mode(SaveMode.Append).save();
