@@ -1,0 +1,79 @@
+tuning notes
+a gentle introduction to apache spark
+https://docs.microsoft.com/en-us/azure/hdinsight/spark/apache-spark-perf
+https://stackoverflow.com/questions/45737199/pyspark-window-function-with-condition
+https://stackoverflow.com/questions/40416357/spark-sql-difference-between-df-repartition-and-dataframewriter-partitionby
+
+sqlContext.setConf("spark.sql.shuffle.partitions", "300")
+sqlContext.setConf("spark.default.parallelism", "300")
+./bin/spark-submit --conf spark.sql.shuffle.partitions=300 --conf spark.default.parallelism=300
+
+
+get the number of records per partition
+import org.apache.spark.sql.functions.spark_partition_id
+
+df.groupBy(spark_partition_id).count
+
+spark
+  .sql(sql)
+  .repartition("day")
+  .write
+  .partitionBy("day")
+  .json(output_path)
+
+  pramod:
+Assume there are 3 Systems
+Each system config
+16cores  1 core is give to OS
+32GB RAM 2GB is given to OS
+   
+
+Worker will have 15 cores and 30GB RAM
+Total cluster resources
+Memory = 90GB
+Cores = 45Cores
+
+/opt/spark/bin/spark-submit --executor-memory 16G --executor-cores 8 --total-executor-cores 24 
+
+num of executors = 24/8 = 3 
+Each executor will have 8 cores
+Each executor will have 16GB RAM. 
+Cannot have more than 1 executor in a node
+
+/opt/spark/bin/spark-submit --executor-memory 10G --executor-cores 5 --total-executor-cores 30
+
+num of executor = 30/5 = 7
+Each executor will have 5 cores
+Each executor will have 10GB RAM.
+Can have upto 3 executor per node 
+
+You should always try to decrease size of data for shuffling to increase application performance.
+One common solution to achieve this is, always filter data before shuffle phase rather than after.
+
+Always try to avoid empty partition. After filter use coalesce
+
+If your job is taking a long time and your cluster is not utilised completely, try to use repartition operation
+
+MEMORY_ONLY  cache will put pressure on GC. Alternate caching is MEMORY_ONLY_SER, MEMORY_AND_DISK
+Use LZF compression to improve shuffle performance
+conf.set("spark.io.compression.codec","lzf")
+
+Turn on speculative execution to help prevent stragglers.
+conf.set("spark.speculation","true")
+
+
+Number of partitions should be  2 times #cores
+For example, if you have 100 cores in the clusters, a good starting point for number of partitions is around 200. From there on, you can continue to keep increasing the number of partitions until you can see that you get a good balance of concurrency and task execution time.
+
+
+Now, the total number of partitions per job is
+number of partitions per application = (#consumers) * (batchInterval / blockInterval)
+
+
+
+ReduceByKey Vs GroupByKey
+Prefer ReduceByKey over GroupByKey
+
+
+ Checkpointing waits until the end of a job, and launches another job to finish checkpoint. An RDD which needs to be checkpointed will be computed twice; thus it is suggested to do a rdd.cache() before rdd.checkpoint(). In this case, the second job will not recompute the RDD. Instead, it will just read cache
+ 

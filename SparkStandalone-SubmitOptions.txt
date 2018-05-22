@@ -1,0 +1,24 @@
+Assume there are 3 Systems
+Each system config
+16cores  1 core is give to OS
+32GB RAM 2GB is given to OS
+   
+
+Worker will have 15 cores and 30GB RAM
+Total cluster resources
+Memory = 90GB
+Cores = 45Cores
+
+/opt/spark/bin/spark-submit --executor-memory 16G --executor-cores 8 --total-executor-cores 24 
+
+num of executors = 24/8 = 3 
+Each executor will have 8 cores
+Each executor will have 16GB RAM. 
+Cannot have more than 1 executor in a node
+
+/opt/spark/bin/spark-submit --executor-memory 10G --executor-cores 5 --total-executor-cores 30
+
+num of executor = 30/5 = 7
+Each executor will have 5 cores
+Each executor will have 10GB RAM.
+Can have upto 3 executor per node 
