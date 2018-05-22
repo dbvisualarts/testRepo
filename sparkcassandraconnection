@@ -1,0 +1,142 @@
+import org.apache.spark.sql.SparkSession;
+
+
+
+import java.io.Serializable;
+
+
+
+import org.apache.spark.SparkConf;
+
+import org.apache.spark.api.java.JavaSparkContext;
+
+import org.apache.spark.streaming.api.java.*;
+
+import org.apache.spark.streaming.dstream.ConstantInputDStream;
+
+import org.apache.spark.streaming.Durations;
+
+
+
+import com.datastax.spark.connector.japi.CassandraJavaUtil;
+
+import com.datastax.spark.connector.japi.CassandraRow;
+
+import com.datastax.spark.connector.japi.CassandraStreamingJavaUtil;
+
+import com.datastax.spark.connector.japi.rdd.CassandraJavaRDD;
+
+
+
+import com.datastax.spark.connector.streaming.*;
+
+
+
+
+
+
+
+import com.datastax.spark.connector.*;
+
+import org.apache.spark.sql.cassandra.*;
+
+import static com.datastax.spark.connector.japi.CassandraJavaUtil.mapRowTo;
+
+import static com.datastax.spark.connector.japi.CassandraJavaUtil.mapToRow;
+
+
+
+class Employee implements Serializable {
+
+	  private int id;
+
+	  private String name;
+
+	  private int salary;
+
+	  public String getName() {
+
+		  return name;
+
+	  }
+
+	  public int getsalary() {
+
+		  return salary;
+
+	  }
+
+	  public int getid() {
+
+		  return id;
+
+	  }
+
+	  // Constructors, getters, setters...
+
+
+
+	}
+
+
+
+public class SparkStreaming_Cassandra {
+
+
+
+	public static void main(String[] args) throws Exception {
+
+
+
+	    
+
+	    SparkSession spark = SparkSession
+
+	    		  .builder()
+
+	    		  .appName("Spark steraming cassandrea")
+
+	    		  .getOrCreate();
+
+	    spark.conf().set("spark.cassandra.connection.host", "127.0.0.1");
+
+	    spark.conf().set("spark.sql.shuffle.partitions", "2");
+
+	    
+
+	    
+
+	    String KEY_SPACE_NAME = "dev";
+
+	    String TABEL_NAME = "employee";
+
+	    SparkConf conf = new SparkConf().setAppName("Spark steraming cassandrea").set("spark.cassandra.connection.host", "127.0.0.1").set("spark.sql.shuffle.partitions", "2");
+
+	    
+
+	    JavaStreamingContext ssc = new JavaStreamingContext(conf, Durations.seconds(10));
+
+	    CassandraJavaRDD<Employee> cassandraRDD = CassandraStreamingJavaUtil.javaFunctions(ssc).cassandraTable(KEY_SPACE_NAME, TABEL_NAME, mapRowTo(Employee.class));
+
+	
+
+	    cassandraRDD.foreach(rdd -> {
+
+	    	System.out.println(rdd.getid() + "##" + rdd.getName() + "##" + rdd.getsalary());
+
+	    });
+
+	    
+
+	    ssc.start();
+
+	    ssc.awaitTermination();
+
+	    
+
+	}
+
+}
+
+
+
